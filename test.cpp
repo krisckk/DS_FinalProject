@@ -1,190 +1,282 @@
-#include <fstream>
 #include <string>
+#include <cstring>
 #include <vector>
+#include <array>
 #include <iostream>
-#include <unordered_map>
-#include <memory>
+#include <fstream>
 #include <algorithm>
-#include <sstream>
+#include <numeric>
 
 using namespace std;
 
-class TrieNode {
-public:
-    unordered_map<char, shared_ptr<TrieNode>> children;
-    bool is_end_of_word;
-
-    TrieNode() : is_end_of_word(false) {}
-};
-
 class Trie {
 private:
-    shared_ptr<TrieNode> root;
-
-    string normalize(const string &word) const {
-        string normalized;
-        for (char ch : word) {
-            if (isalpha(ch)) {
-                normalized.push_back(tolower(ch));
-            }
-        }
-        return normalized;
-    }
+    Trie* alphachild[26];
+    bool isEnd;
 
 public:
-    Trie() { root = make_shared<TrieNode>(); }
-
-    void insert(const string &word) {
-        string normalized = normalize(word);
-        shared_ptr<TrieNode> node = root;
-        for (char ch : normalized) {
-            if (!node->children[ch]) {
-                node->children[ch] = make_shared<TrieNode>();
-            }
-            node = node->children[ch];
-        }
-        node->is_end_of_word = true;
+    Trie() {
+        isEnd = false;
+        for (int i = 0; i < 26; i++)
+            alphachild[i] = NULL;
     }
 
-    bool search(const string &word) const {
-        string normalized = normalize(word);
-        shared_ptr<TrieNode> node = root;
-        for (char ch : normalized) {
-            if (!node->children[ch]) {
-                return false;
-            }
-            node = node->children[ch];
+    void insert(const string& s) {
+        Trie* current = this;
+        for (int i = 0; i < s.length(); i++) {
+            int idx = tolower(s[i]) - 'a';
+            if (current -> alphachild[idx] == NULL)
+                current -> alphachild[idx] = new Trie();
+            current = current -> alphachild[idx];
         }
-        return node->is_end_of_word;
+        current -> isEnd = true;
+    }
+
+    bool exactSearch(const string& s) {
+        Trie* current = this;
+        for (int i = 0; i < s.length(); i++) {
+            int idx = tolower(s[i]) - 'a';
+            if (current -> alphachild[idx] == NULL)
+                return false;
+            current = current -> alphachild[idx];
+        }
+        return current -> isEnd;
+    }
+
+    bool prefixSearch(const string& prefix) {
+        Trie* current = this;
+        for (int i = 0; i < prefix.length(); i++) {
+            int idx = tolower(prefix[i]) - 'a';
+            if (current -> alphachild[idx] == NULL)
+                return false;
+            current = current ->alphachild[idx];
+        }
+        return true;
+    }
+
+    bool wildcardSearch(const string& pattern) {
+        return wildcardSearchHelper(this, pattern, 0);
+    }
+
+private:
+    bool wildcardSearchHelper(Trie* node, const string& pattern, int index) {
+        if (node == nullptr) return false;
+        if (index == pattern.length()) return node -> isEnd;
+        char ch = pattern[index];
+        if (ch == '*') {
+            for (int i = 0; i < 26; i++) {
+                if (node -> alphachild[i] && wildcardSearchHelper(node -> alphachild[i], pattern, index + 1))
+                    return true;
+            }
+            return wildcardSearchHelper(node, pattern, index + 1);
+        } else {
+            if (!isalpha(ch)) return false;
+            int idx = tolower(ch) - 'a';
+            return wildcardSearchHelper(node -> alphachild[idx], pattern, index + 1);
+        }
     }
 };
 
-vector<string> split(const string &str, const string &delim) {
-    vector<string> res;
-    size_t start = 0, end;
-    while ((end = str.find(delim, start)) != string::npos) {
-        res.emplace_back(str.substr(start, end - start));
-        start = end + delim.length();
+// Utility function to parse words from a string
+vector<string> word_parse(const string& str) {
+    vector<string> words;
+    string word;
+    for (char ch : str) {
+        if (isalpha(ch)) {
+            word.push_back(tolower(ch));
+        } else if (!word.empty()) {
+            words.push_back(word);
+            word.clear();
+        }
     }
-    res.emplace_back(str.substr(start));
+    if (!word.empty()) {
+        words.push_back(word);
+    }
+    return words;
+}
+
+vector<string> split(const string& str, const string& delim) {
+    vector<string> res;
+    if (str.empty()) return res;
+
+    char* strs = new char[str.length() + 1];
+    strcpy_s(strs, str.length() + 1, str.c_str());
+
+    char* d = new char[delim.length() + 1];
+    strcpy_s(d, delim.length() + 1, delim.c_str());
+
+    char* context = nullptr;
+    char* p = strtok_s(strs, d, &context);
+    while (p) {
+        string s = p;
+        res.push_back(s);
+        p = strtok_s(nullptr, d, &context);
+    }
+
+    delete[] strs;
+    delete[] d;
+
     return res;
 }
 
-vector<string> word_parse(const vector<string> &words) {
-    vector<string> parsed;
-    for (const string &word : words) {
-        string clean_word;
-        for (char ch : word) {
-            if (isalpha(ch)) {
-                clean_word.push_back(tolower(ch));
-            }
-        }
-        if (!clean_word.empty()) {
-            parsed.push_back(clean_word);
-        }
-    }
-    return parsed;
-}
-
-vector<string> parse_query(const string &query) {
-    vector<string> tokens;
-    string token;
-    istringstream stream(query);
-    while (stream >> token) {
-        tokens.push_back(token);
-    }
-    return tokens;
-}
-
-bool evaluate_query(const Trie &trie, const vector<string> &tokens) {
-    vector<bool> results;
-    bool expect_result = true;
-
-    for (const string &token : tokens) {
-        if (token == "+") {
-            expect_result = true;
-        } else if (token == "-") {
-            expect_result = false;
-        } else if (token == "/") {
-            // OR operator, do nothing
-        } else {
-            bool found = trie.search(token);
-            if (expect_result) {
-                results.push_back(found);
-            } else {
-                results.push_back(!found);
-            }
-        }
-    }
-
-    // Evaluate results for OR (if any are true, return true)
-    return any_of(results.begin(), results.end(), [](bool result) { return result; });
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 4) {
+int main(int argc, char* argv[]) {
+    if (argc < 4) {
         cerr << "Usage: " << argv[0] << " <data_dir> <query_file> <output_file>" << endl;
         return 1;
     }
 
-    string data_dir = argv[1];
-    string query_file = argv[2];
-    string output_file = argv[3];
+    string data_dir = argv[1] + string("/");
+    string query_file = string(argv[2]);
+    string output_file = string(argv[3]);
 
-    Trie trie;
+    // Create a vector for titles names to print the matching result title into the output.txt
+    vector<string> titles;
 
-    // Reading all files in the data directory (assuming file names are 0.txt, 1.txt, ...)
-    for (int i = 0; i < 10; ++i) { // Adjust range based on actual file count
-        string file_path = data_dir + "/" + to_string(i) + ".txt";
-        ifstream file(file_path);
-        if (!file.is_open()) {
-            cerr << "Failed to open file: " << file_path << endl;
-            continue;
+    // Create a vector of Trie objects for essays and suffixes
+    vector<Trie> essayTrie;
+    vector<Trie> suffixEssayTrie;
+
+    // Read queries
+    fstream queryFile(query_file, ios::in);
+    string Query;
+
+    vector<string> temp;
+    // Create a 2D vector for each query to store the matching essay index
+    vector<vector<int>> answerIndex;
+    fstream of(output_file, ios::out);
+
+    // Loop through each file
+    for (int fileIdx = 0; ; ++fileIdx) {
+        string filePath = data_dir + to_string(fileIdx) + ".txt";
+        fstream fi;
+        fi.open(filePath, ios::in);
+        if (!fi.is_open()) {
+            break; // Stop reading files if file not found
+        }
+
+        // Ensure the vectors are large enough
+        if (essayTrie.size() <= fileIdx) {
+            essayTrie.resize(fileIdx + 1);
+            suffixEssayTrie.resize(fileIdx + 1);
+            titles.resize(fileIdx + 1);
         }
 
         string line;
+        // Read title
+        getline(fi, line);
+        titles[fileIdx] = line;
+        temp = split(line, " ");
+        string tempStr = accumulate(temp.begin(), temp.end(), string(" "));
+        vector<string> titleWords = word_parse(tempStr);
+        for (const string& word : titleWords) {
+            essayTrie[fileIdx].insert(word);
+            string suffix = word;
+            reverse(suffix.begin(), suffix.end());
+            suffixEssayTrie[fileIdx].insert(suffix);
+            cout << "Inserted title word: " << word << " and its suffix: " << suffix << endl; // Debug print
+        }
 
-        // Parse title
-        if (getline(file, line)) {
-            vector<string> words = split(line, " ");
-            vector<string> parsed_words = word_parse(words);
-            for (const string &word : parsed_words) {
-                trie.insert(word);
+        // Read body
+        while (getline(fi, line)) {
+            temp = split(line, " ");
+            string tempStr = accumulate(temp.begin(), temp.end(), string(" "));
+            vector<string> bodyWords = word_parse(tempStr);
+            for (const string& word : bodyWords) {
+                essayTrie[fileIdx].insert(word);
+                // reverse the word and store it in suffixEssayTrie
+                string suffix = word;
+                reverse(suffix.begin(), suffix.end());
+                suffixEssayTrie[fileIdx].insert(suffix);
             }
         }
 
-        // Parse content
-        while (getline(file, line)) {
-            vector<string> words = split(line, " ");
-            vector<string> parsed_words = word_parse(words);
-            for (const string &word : parsed_words) {
-                trie.insert(word);
+        int queryIdx = 0;
+        while (getline(queryFile, Query)) {
+            cout << "Reading query: " << Query << endl;
+            vector<string> queryWords = split(Query, " ");
+            vector<bool> found(queryWords.size(), false);
+            for (int i = 0; i < queryWords.size(); i++) {
+                cout << "Processing query word: " << queryWords[i] << endl; // Debug print
+                if (queryWords[i][0] == '"') {
+                    string temp = queryWords[i];
+                    temp.pop_back();
+                    temp.erase(temp.begin());
+                    queryWords[i] = temp;
+                    if (queryWords[i - 1][0] == '-') found[i] = !essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '+' && found[i - 2]) found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '/') {
+                        found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                        if (!found[i] && !found[i - 2]) found[i] = found[i - 2] = false;
+                        else found[i] = found[i - 2] = true;
+                    }
+                    else found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                }
+                else if (isalpha(queryWords[i][0])) {
+                    if (queryWords[i - 1][0] == '-') found[i] = !essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '+' && found[i - 2]) found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '/') {
+                        found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                        if (!found[i] && !found[i - 2]) found[i] = found[i - 2] = false;
+                        else found[i] = found[i - 2] = true;
+                    }
+                    else found[i] = essayTrie[fileIdx].prefixSearch(queryWords[i]);
+                }
+                else if (queryWords[i][0] == '*') {
+                    reverse(queryWords[i].begin(), queryWords[i].end());
+                    string temp = queryWords[i];
+                    temp.pop_back();
+                    temp.erase(temp.begin());
+                    queryWords[i] = temp;
+                    if (queryWords[i - 1][0] == '-') found[i] = !suffixEssayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '+' && found[i - 2]) found[i] = suffixEssayTrie[fileIdx].prefixSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '/') {
+                        found[i] = suffixEssayTrie[fileIdx].prefixSearch(queryWords[i]);
+                        if (!found[i] && !found[i - 2]) found[i] = found[i - 2] = false;
+                        else found[i] = found[i - 2] = true;
+                    }
+                    else found[i] = suffixEssayTrie[fileIdx].prefixSearch(queryWords[i]);
+                }
+                else if (queryWords[i][0] != '*' && queryWords[i].find('*')) {
+                    if (queryWords[i - 1][0] == '-') found[i] = !suffixEssayTrie[fileIdx].wildcardSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '+' && found[i - 2]) found[i] = suffixEssayTrie[fileIdx].wildcardSearch(queryWords[i]);
+                    else if (queryWords[i - 1][0] == '/') {
+                        found[i] = suffixEssayTrie[fileIdx].wildcardSearch(queryWords[i]);
+                        if (!found[i] && !found[i - 2]) found[i] = found[i - 2] = false;
+                        else found[i] = found[i - 2] = true;
+                    }
+                    else found[i] = suffixEssayTrie[fileIdx].wildcardSearch(queryWords[i]);
+                }
+                else if (queryWords[i][0] == '+' || queryWords[i][0] == '/' || queryWords[i][0] == '-') {
+                    found[i] = true;
+                }
+            }
+            // Check if every member of found is true, if it is, then add the fileIdx to answerIndex
+            bool allTrue = true;
+            for (int i = 0; i < queryWords.size(); i++) {
+                if (!found[i]) {
+                    allTrue = false;
+                    break;
+                }
+            }
+            if (allTrue) {
+                answerIndex[queryIdx].push_back(fileIdx);
             }
         }
 
-        file.close();
+        fi.close();
     }
+    queryFile.close();
 
-    // Process queries
-    ifstream query_input(query_file);
-    ofstream output(output_file);
-    if (!query_input.is_open() || !output.is_open()) {
-        cerr << "Failed to open query or output file." << endl;
+    if (!of.is_open()) {
+        cerr << "Error opening or creating output file" << endl;
         return 1;
     }
-
-    string query;
-    while (getline(query_input, query)) {
-        vector<string> tokens = parse_query(query);
-        if (evaluate_query(trie, tokens)) {
-            output << query << ": Found" << endl;
-        } else {
-            output << query << ": Not Found" << endl;
+    for (int i = 0; i < answerIndex.size(); ++i) {
+        for (int j = 0; j < answerIndex[i].size(); ++j) {
+            of << titles[answerIndex[i][j]] << endl;
+            of << "Writing title to output: " << titles[answerIndex[i][j]] << endl; // Debug print
         }
     }
-
-    query_input.close();
-    output.close();
-
+    of.close();
     return 0;
 }

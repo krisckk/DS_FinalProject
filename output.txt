@@ -1,8 +1,0 @@
-reflect: Found
-"graph" / *composition*: Found
-"graph" + decompos: Found
-graph + decomposition / reflection: Found
-"spiderMan": Not Found
-<com*on> - "shaped": Found
-"graph" - "deep": Found
-"radiation" - "changed": Found
